@@ -296,6 +296,7 @@ function Landing() {
 
   const claim = useCallback(async (address: string) => {
     setFaucetBusy(true);
+    const before = await balanceOf(address).catch(() => null);
     try {
       const res = await fetch("/api/test-gen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address }) });
       const body = await readJson<{ ok: boolean; error?: string; amount?: string; hash?: string; confirmed?: boolean }>(res);
@@ -305,22 +306,21 @@ function Landing() {
         return;
       }
       // the transfer can take a few seconds to show up in the balance: wait for it to go up
-      const before = walletBalance;
       let after: bigint | null = null;
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 15; i++) {
         after = await balanceOf(address).catch(() => null);
         if (after !== null && (before === null || after > before)) break;
         await new Promise((r) => setTimeout(r, 2000));
       }
       if (after !== null) setWalletBalance(after);
-      toast({ title: `✓ +${body.amount} GEN received`, body: after !== null ? `New balance ${formatGen(after)} GEN` : body.confirmed ? "Confirmed" : "Confirming…", href: body.hash ? EXPLORER_TX + body.hash : undefined });
+      toast({ title: `✓ +${body.amount} GEN received`, body: after !== null && (before === null || after > before) ? `New balance ${formatGen(after)} GEN` : "The new balance shows in a moment", href: body.hash ? EXPLORER_TX + body.hash : undefined });
       window.setTimeout(() => void refreshBalances(), 6000);
     } catch (e) {
       toast({ title: "No test GEN sent", body: e instanceof NotJsonError ? e.message : `Faucet unreachable: ${errorText(e)}`, error: true });
     } finally {
       setFaucetBusy(false);
     }
-  }, [refreshBalances, toast, walletBalance]);
+  }, [refreshBalances, toast]);
 
   function getTestGen(where: Where) {
     if (wallet) return void claim(wallet.address);

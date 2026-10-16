@@ -103,6 +103,9 @@ export function TxRun({ live, onClose, compact, onOpen }: { live: Live; onClose?
       ) : (
         <div className="status"><span className="dot" /><span>{live.judged && live.progress?.phase === "processing" ? "GenLayer validators are judging · usually 2-5 minutes" : PHASE_TEXT[live.progress?.phase ?? "signing"]}</span><span className="elapsed">{fmtElapsed(now - live.started)}</span></div>
       )}
+      {!finished && at >= 1 && now - live.started > (live.judged ? 10 : 3) * 60000 && (
+        <p className="warn">Studio Next is answering slowly or is unavailable right now · nothing is lost · this keeps checking and updates by itself · you can close this and come back</p>
+      )}
       {hash && <a className="tx" href={EXPLORER_TX + hash} target="_blank" rel="noreferrer">{hash.slice(0, 10)}…{hash.slice(-6)} ↗</a>}
       <div className="next">
         {live.open && onOpen && !live.error && <button className={`btn${finished ? " pulse" : ""}`} type="button" onClick={() => onOpen(live.open!)}>{live.judged && !finished ? "Open live timeline" : "Open the timeline"}</button>}
