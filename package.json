@@ -14,7 +14,8 @@
     "test:onchain": "node tests/onchain/vault.test.mjs",
     "test:e2e": "node tests/e2e/full-flow.mjs && node tests/e2e/try-it.mjs",
     "test:all": "npm test && npm run test:onchain && npm run test:e2e",
-    "test:smoke": "node tests/e2e/landing-smoke.mjs"
+    "test:smoke": "node tests/e2e/landing-smoke.mjs",
+    "test:two-wallets": "node tests/e2e/two-wallets.mjs"
   },
   "dependencies": {
     "@genlayer/transaction-kit": "0.1.0-rc.2",

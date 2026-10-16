@@ -152,10 +152,10 @@ const refreshing = new Map<string, Promise<Cached>>();
 const lastEdgeCheck = new Map<string, number>();
 // One refresh (a full history download and parse) costs about 200 ms of Worker CPU, far more than the
 // plan's per-request budget, and a Worker over budget is stopped together with the requests it serves
-// (Cloudflare error 1102). So the feed is refreshed at most every 30 s, isolates first look for a
+// (Cloudflare error 1102). So the feed is refreshed at most every 10 s, isolates first look for a
 // newer copy another isolate put in the shared cache, a short marker keeps them from refreshing at the
 // same time, and POST handlers never refresh (a demo-wallet write must not share an invocation with it).
-const FRESH_MS = 30000;
+const FRESH_MS = 10000;
 const EDGE_CHECK_MS = 5000;
 const REFRESH_MARK_S = 25;
 const cacheKey = (contract: string) => `https://trustgate-feed.cache/${contract.toLowerCase()}`;

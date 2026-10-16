@@ -1,6 +1,7 @@
 import { Syne } from "next/font/google";
 import { VaultApp } from "@/components/vault-app";
 import "./landing.css";
+import "./landing-ux.css";
 
 const syne = Syne({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--syne", display: "swap" });
 

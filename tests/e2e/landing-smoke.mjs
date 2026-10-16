@@ -101,7 +101,6 @@ const watch = (page, label) => {
 };
 const gotoGate = async (page) => { await page.evaluate(() => window.scrollTo(0, document.getElementById("gate").offsetTop)); await page.waitForTimeout(2500); };
 const shot = (page, name) => page.screenshot({ path: path.join(OUT, name + ".png") });
-const tab = async (page, name) => { await page.getByRole("tab", { name, exact: true }).first().click(); await page.waitForTimeout(800); };
 
 const browser = await chromium.launch({ executablePath: CHROME, headless: true, args: ["--ignore-gpu-blocklist"] });
 try {
@@ -131,7 +130,7 @@ try {
     await page.getByText("No browser wallet found").first().waitFor({ timeout: 10000 });
     await shot(page, "01-no-wallet");
     await page.locator("header .btn", { hasText: "Get test GEN" }).click();
-    await page.getByText("Connect a wallet first").first().waitFor({ timeout: 5000 });
+    await page.locator(".toast", { hasText: "Connect a wallet first" }).first().waitFor({ timeout: 5000 });
     await ctx.close();
   });
 
@@ -182,13 +181,13 @@ try {
     return w;
   });
 
-  await step("Get test GEN (faucet sends to the connected wallet)", async () => {
+  await step("Get test GEN (faucet toast with the new balance)", async () => {
     await page.locator("header .btn", { hasText: "Get test GEN" }).click();
-    const msg = page.locator(".tg-pop p").filter({ hasText: /sent|already|limit|Limit|claimed|once|try again/i }).first();
-    await msg.waitFor({ timeout: 120000 });
-    await shot(page, "04-faucet");
-    const text = (await msg.textContent())?.trim();
-    const tx = await page.locator(".tg-pop a", { hasText: "tx" }).getAttribute("href").catch(() => null);
+    const t = page.locator(".toast").filter({ hasText: /GEN received|limit|No test GEN/i }).first();
+    await t.waitFor({ timeout: 120000 });
+    await shot(page, "04-faucet-toast");
+    const text = (await t.textContent())?.trim();
+    const tx = await t.locator("a.tx").getAttribute("href").catch(() => null);
     const fresh = arg("--wallet", "fresh") === "fresh";
     // A fresh wallet always gets test GEN unless the whole site used up today's budget; then the refusal is
     // the expected answer and the wallet gets 1 GEN from the local E2E wallet for the vault step.
@@ -196,77 +195,80 @@ try {
       const e2e = privateKeyToAccount(fs.readFileSync(path.join(ROOT, ".env.local"), "utf8").match(/^E2E_OWNER_PRIVATE_KEY=(0x[0-9a-fA-F]{64})/m)[1]);
       const hash = await createWalletClient({ account: e2e, chain, transport: http(RPC) }).sendTransaction({ to: owner.address, value: 10n ** 18n });
       await page.locator("header .btn.hot").filter({ hasText: /[1-9][0-9.]* GEN/ }).waitFor({ timeout: 90000 });
-      return { msg: text, faucet: "refused: site-wide daily budget used up", fundedFromE2E: hash };
+      return { toast: text, faucet: "refused: site-wide daily budget used up", fundedFromE2E: hash };
     }
-    if (fresh && !/test GEN sent/.test(text ?? "")) throw new Error(`fresh wallet got: ${text}`);
-    // the header shows the new balance once the transfer is in
+    if (fresh && !/GEN received/.test(text ?? "")) throw new Error("fresh wallet got: " + text);
     await page.locator("header .btn.hot").filter({ hasText: /[1-9][0-9.]* GEN/ }).waitFor({ timeout: 90000 });
-    return { msg: text, tx, header: (await page.locator("header .btn.hot").textContent())?.trim() };
+    return { toast: text, tx, header: (await page.locator("header .btn.hot").textContent())?.trim() };
   });
-  await page.locator(".tg-pop .close").click().catch(() => {});
 
   await gotoGate(page);
   await step("console: Try it tab default, presets and counter", async () => {
     await page.locator("#try-it .v13-mandate").waitFor({ timeout: 45000 });
-    await page.getByRole("button", { name: /Escrow controlled by the seller/ }).click();
+    await page.locator(".preset", { hasText: /Escrow controlled by the seller/ }).click();
     const count = await page.locator("#try-it .count").first().textContent();
     await shot(page, "05-try-it");
     return { count };
   });
 
-  await step("Your wallet · Owner: create agent key, review the fee, create a vault (0.5 GEN)", async () => {
-    await tab(page, "Your wallet");
+  await step("Your wallet · Owner: agent key, confirm modal, create a vault (0.5 GEN), vault card", async () => {
+    await page.locator("#tab-wallet").click();
     await page.waitForTimeout(1500);
     const create = page.getByRole("button", { name: "Create agent key" });
     if (await create.count()) await create.click();
-    await page.getByText("Back up or remove this key", { exact: true }).waitFor({ timeout: 5000 });
+    await page.getByText("back up or remove this key").first().waitFor({ timeout: 5000 });
     await page.locator("#tg-dep").fill("0.5");
     await page.waitForTimeout(500);
-    const btn = page.getByRole("button", { name: "Review fee and create vault" });
+    const btn = page.getByRole("button", { name: "Review and create vault" });
     await shot(page, "06-owner");
-    if (await btn.isDisabled()) throw new Error(`create vault blocked: ${await page.locator("#p-wallet .box .warn.err").first().textContent().catch(() => "?")}`);
+    if (await btn.isDisabled()) throw new Error("create vault blocked: " + (await page.locator("#p-wallet .box .warn.err").first().textContent().catch(() => "?")));
     await btn.click();
-    await page.locator(".v13-tx").filter({ hasText: /network fee up to/i }).waitFor({ timeout: 60000 });
-    await shot(page, "07-fee-review");
-    await page.locator(".v13-tx").getByRole("button", { name: "Confirm in wallet" }).click();
-    await page.locator(".v13-tx").filter({ hasText: /Consensus reached|Finalized|No verdict|rejected|failed/i }).first().waitFor({ timeout: 240000 });
-    const status = (await page.locator(".v13-tx").first().textContent())?.trim();
-    const tx = await page.locator(".v13-tx a").first().getAttribute("href").catch(() => null);
-    if (!/Consensus reached|Finalized/.test(status ?? "")) throw new Error(`vault creation: ${status}`);
+    const modal = page.locator(".scrim .v13-tx");
+    await modal.filter({ hasText: /network fee/i }).waitFor({ timeout: 60000 });
+    await shot(page, "07-confirm-modal");
+    await page.locator(".scrim").getByRole("button", { name: "Confirm in wallet" }).click();
+    await page.locator(".scrim .ok, .scrim .warn.err").first().waitFor({ timeout: 240000 });
+    const status = (await page.locator(".scrim .v13-tx").first().textContent())?.trim();
+    const tx = await page.locator(".scrim a.tx").first().getAttribute("href").catch(() => null);
+    await shot(page, "07a-confirm-done");
+    if (!(await page.locator(".scrim .ok").count())) throw new Error("vault creation: " + status);
+    await page.locator(".scrim").getByRole("button", { name: "Done" }).click();
     // the new vault shows up under Your vaults once the feed has it
-    await page.locator("#p-wallet .ownervault").first().waitFor({ timeout: 120000 });
-    const vault = (await page.locator("#p-wallet .ownervault b").first().textContent())?.trim();
-    await shot(page, "07b-vault-created");
+    await page.locator("#p-wallet .vault .vid code").first().waitFor({ timeout: 120000 });
+    const vault = (await page.locator("#p-wallet .vault .vid code").first().textContent())?.trim();
+    await shot(page, "07b-vault-card");
     return { tx, vault };
   });
 
   await step("Your wallet · Agent and Seller tabs", async () => {
-    await tab(page, "Agent · buyer");
+    await page.getByRole("tab", { name: /Agent · buyer/ }).click();
     await page.getByText("Act as the agent").waitFor({ timeout: 5000 });
     await shot(page, "08-agent");
-    await tab(page, "Seller");
+    await page.getByRole("tab", { name: /^Seller/ }).click();
     await page.getByText("Post an offer").waitFor({ timeout: 5000 });
-    await page.getByText("Counterproposals").first().waitFor();
+    await page.getByText("Your offers").first().waitFor();
     await shot(page, "09-seller");
   });
 
-  await step("AI agent · MCP tab", async () => {
-    await tab(page, "AI agent · MCP");
-    await page.getByText("Buyer tools").waitFor({ timeout: 5000 });
-    await shot(page, "10-mcp");
+  await step("MCP tile opens a modal with the real tools (4 buyer, 6 seller)", async () => {
+    await page.locator(".ltile", { hasText: "MCP for agents" }).click();
+    await page.getByText("Buyer side · 4 tools").waitFor({ timeout: 5000 });
+    await page.getByText("Seller side · 6 tools").waitFor({ timeout: 5000 });
+    await shot(page, "10-mcp-modal");
+    await page.keyboard.press("Escape");
   });
 
   let negUrl = null;
-  await step("Live feed: real vaults, contract and vault tabs, negotiation view", async () => {
-    await tab(page, "Live feed");
-    await page.locator("#p-feed .stats").waitFor({ timeout: 90000 });
-    const head = await page.locator("#p-feed .feedhead").textContent();
-    const vaultTabs = await page.locator('#p-feed [aria-label="Vault"] .tab').count();
-    await shot(page, "11-feed");
-    // The vault created above is selected and has no negotiations yet: pick the first vault tab that has some.
-    const neg = page.locator("#p-feed .neglist button.row").first();
+  await step("Live feed tile: real vaults, negotiation cards, full timeline modal", async () => {
+    await page.locator(".ltile", { hasText: "Live feed" }).click();
+    await page.locator(".scrim .stats").waitFor({ timeout: 90000 });
+    const head = await page.locator(".scrim .feedhead").textContent();
+    const vaultTabs = await page.locator('.scrim [aria-label="Vault"] .tab').count();
+    await shot(page, "11-feed-modal");
+    // The vault created above may be selected and have no negotiations yet: pick a vault that has some.
+    const neg = page.locator(".scrim .negc").first();
     for (let i = 0; i < vaultTabs && !(await neg.count()); i++) {
-      await page.locator('#p-feed [aria-label="Vault"] .tab').nth(i).click();
+      await page.locator('.scrim [aria-label="Vault"] .tab').nth(i).click();
       await page.waitForTimeout(600);
     }
     await neg.waitFor({ timeout: 30000 });
@@ -274,18 +276,17 @@ try {
     await page.locator("#negotiation .v13-timeline").waitFor({ timeout: 30000 });
     negUrl = page.url();
     await page.waitForTimeout(800);
-    await shot(page, "12-negotiation-modal");
+    await shot(page, "12-timeline-modal");
     await page.keyboard.press("Escape");
-    await page.locator('#p-feed [aria-label="Contract"] .tab').nth(2).click();
-    await page.waitForTimeout(2000);
     return { head: head?.trim(), vaultTabs, negUrl };
   });
 
-  await step("Benchmark tab with per-case links", async () => {
-    await tab(page, "Benchmark");
-    const links = await page.locator("#p-bench a", { hasText: "per-case results and transactions" }).count();
-    const cells = await page.locator("#p-bench td.good, #p-bench td.bad").allTextContents();
-    await shot(page, "13-benchmark");
+  await step("Benchmark tile: all tables with per-case links", async () => {
+    await page.locator(".ltile", { hasText: "Benchmark" }).click();
+    const links = await page.locator(".scrim a", { hasText: "per-case results and transactions" }).count();
+    const cells = await page.locator(".scrim td.good, .scrim td.bad").allTextContents();
+    await shot(page, "13-benchmark-modal");
+    await page.keyboard.press("Escape");
     if (links < 5) throw new Error("links " + links);
     return { links, unsafeCells: cells.join(" ") };
   });
@@ -320,11 +321,20 @@ try {
       if (i === 2) await shot(p, "16-mobile-panel");
     }
     await shot(p, "17-mobile-console");
-    for (const t of ["Your wallet", "Live feed", "Benchmark", "AI agent · MCP"]) {
-      await p.getByRole("tab", { name: t, exact: true }).first().click();
+    await p.locator("#tab-wallet").click();
+    await p.waitForTimeout(800);
+    widths.push(await p.evaluate(() => document.documentElement.scrollWidth));
+    await shot(p, "18-mobile-wallet");
+    for (const t of ["Live feed", "Benchmark", "MCP for agents"]) {
+      await p.locator(".ltile", { hasText: t }).click();
       await p.waitForTimeout(t === "Live feed" ? 6000 : 800);
+      // the modal scrolls inside itself; the page never scrolls sideways
+      const m = await p.evaluate(() => { const el = document.querySelector(".hud.modal"); return el ? [el.scrollWidth, el.clientWidth] : [0, 0]; });
       widths.push(await p.evaluate(() => document.documentElement.scrollWidth));
-      if (t === "Your wallet") await shot(p, "18-mobile-wallet");
+      if (m[0] > m[1] + 1) widths.push(999);
+      if (t === "Live feed") await shot(p, "18b-mobile-feed-modal");
+      await p.keyboard.press("Escape");
+      await p.waitForTimeout(300);
     }
     await c.close();
     if (widths.some((w) => w > 390)) throw new Error("scrollWidth " + widths.join(","));
@@ -364,41 +374,35 @@ try {
     await p.goto(BASE, { waitUntil: "load" });
     const box = p.locator("#try-it");
     await box.locator(".v13-mandate").waitFor({ timeout: 90000 });
-    await box.getByRole("button", { name: /Upfront/ }).click();
+    await box.locator(".preset", { hasText: /Upfront/ }).click();
     await box.getByRole("button", { name: /Start the negotiation/ }).click();
-    const verdictOf = async (li) => (await li.locator(".v13-verdict").textContent().catch(() => null))?.trim();
-    // Fails fast on any error the page shows (for example an API that answered with an error page).
-    async function waitFor(text, timeout) {
+    // Fails fast on any error the page shows in the card (for example an API that answered with an error page).
+    async function verdict(round) {
+      const card = box.locator('[data-round="' + round + '"][data-verdict]');
       const t0 = Date.now();
-      while (Date.now() - t0 < timeout) {
-        if (await box.getByText(text).count()) return;
-        const err = await box.locator('.warn.err[role="status"]').first().textContent().catch(() => null);
-        if (err) throw new Error(`Try it shows an error: ${err.trim()}`);
-        await p.waitForTimeout(1000);
+      let sawProgress = false;
+      while (Date.now() - t0 < 20 * 60000) {
+        if (await card.count()) return { verdict: await card.getAttribute("data-verdict"), tx: await card.locator("a.link").getAttribute("href").catch(() => null), sawProgress };
+        if (await box.locator(".card.c-prog .steps").count()) sawProgress = true;
+        const err = await box.locator(".card .err-text").first().textContent().catch(() => null);
+        if (err) throw new Error("Try it shows an error: " + err.trim());
+        await p.waitForTimeout(3000);
       }
-      throw new Error(`"${text}" did not appear within ${timeout / 1000} s`);
+      throw new Error("no verdict on v" + round + " within 20 minutes");
     }
-    async function verdict(li) {
-      await li.waitFor({ timeout: 300000 });
-      for (let i = 0; i < 180; i++) {
-        const v = await verdictOf(li);
-        if (v && v !== "JUDGING") return { verdict: v, tx: await li.locator("footer a").getAttribute("href") };
-        const err = await box.locator('.warn.err[role="status"]').first().textContent().catch(() => null);
-        if (err) throw new Error(`Try it shows an error: ${err.trim()}`);
-        await p.waitForTimeout(5000);
-      }
-      throw new Error("no verdict within 15 minutes");
-    }
-    await waitFor("Demo seller signed offer v1", 180000);
-    const v1 = await verdict(box.locator(".v13-timeline > li").nth(1));
+    // the progress card shows up at once, with its 4 steps and the elapsed timer
+    await box.locator(".card.c-prog .steps").waitFor({ timeout: 15000 });
+    await shot(p, "21a-try-it-progress");
+    const v1 = await verdict(1);
     await shot(p, "21-try-it-v1");
-    if (v1.verdict !== "RENEGOTIATE") throw new Error(`expected RENEGOTIATE on v1, got ${v1.verdict} (${v1.tx})`);
+    // my negotiations: the card with the live mini timeline is there
+    const mineCards = await box.locator(".mine .negc").count();
+    if (v1.verdict !== "RENEGOTIATE") throw new Error("expected RENEGOTIATE on v1, got " + v1.verdict + " (" + v1.tx + ")");
     await box.getByRole("button", { name: /Seller accepts/ }).click();
-    await waitFor("Demo seller signed TrustGate's counterproposal as v2", 240000);
-    const v2 = await verdict(box.locator(".v13-timeline > li").nth(3));
+    const v2 = await verdict(2);
     await box.screenshot({ path: path.join(OUT, "22-try-it-negotiation.png") });
-    if (v2.verdict !== "ACCEPT") throw new Error(`expected ACCEPT on v2, got ${v2.verdict} (${v2.tx})`);
-    await box.getByRole("button", { name: /Open the full negotiation timeline/ }).click();
+    if (v2.verdict !== "ACCEPT") throw new Error("expected ACCEPT on v2, got " + v2.verdict + " (" + v2.tx + ")");
+    await box.locator('[data-round="2"]').getByRole("button", { name: /Open the full negotiation timeline/ }).click();
     await p.locator("#negotiation .v13-timeline").waitFor({ timeout: 120000 });
     // The last step can take a feed refresh to appear; the view says so and keeps polling.
     const waitingShown = await p.getByText("Waiting for the final verdict").count();
@@ -412,7 +416,7 @@ try {
     const url = p.url();
     await c.close();
     if (steps < 4) throw new Error(`timeline has ${steps} steps`);
-    return { v1, v2, url, steps, waitingShownWhileIndexing: waitingShown > 0 };
+    return { v1, v2, url, steps, mineCards, waitingShownWhileIndexing: waitingShown > 0 };
   });
 
   await step("every site API answer was JSON", async () => {

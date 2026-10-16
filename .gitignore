@@ -51,3 +51,4 @@ mcp/src/negotiation.ts
 
 # Landing smoke test output
 /experiments/e2e/landing-smoke/
+/experiments/e2e/two-wallets/

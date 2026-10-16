@@ -5,8 +5,8 @@
 	"name": "trustgate-v13",
 	"compatibility_date": "2026-09-29",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-	// Workers Paid: allow up to 300 ms CPU per request (a feed refresh parses a large history).
-	"limits": { "cpu_ms": 300 },
+	// Workers Paid: allow up to 1 s CPU per request (a feed refresh parses a large history, about 200 ms).
+	"limits": { "cpu_ms": 1000 },
 	"assets": {
 		"directory": ".open-next/assets",
 		"binding": "ASSETS",
@@ -14,7 +14,7 @@
 	},
 	"kv_namespaces": [
 		{
-			// Faucet and Try-it rate limits (per address / per IP)
+			// Faucet limits (per wallet, site-wide), Try it lock and site-wide cap, feed copy
 			"binding": "TG_LIMITS",
 			"id": "29d0e131403e45c3a71e7378418477be"
 		}
