@@ -51,3 +51,13 @@ export function clientIp(request: Request): string {
 
 // Cloudflare KV needs a TTL of at least 60 seconds.
 export const ttl = (seconds: number) => Math.max(60, Math.ceil(seconds));
+
+// Lets work finish after the response is sent (Cloudflare waitUntil); under next dev / next start it just runs.
+export function background(p: Promise<unknown>) {
+  const safe = p.catch(() => undefined);
+  try {
+    getCloudflareContext().ctx.waitUntil(safe);
+  } catch {
+    void safe;
+  }
+}

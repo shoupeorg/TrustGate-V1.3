@@ -18,10 +18,10 @@ const PRESETS = [
 ];
 
 
-type Config = { ok: boolean; configured: boolean; contract?: string; vaultId?: string; agent?: string; seller?: string; mandate?: string | null; cap?: string | null; funds?: string | null; empty?: boolean; queued?: number; limits?: { maxChars: number; minChars: number; perIpPerHour: number }; error?: string };
+type Config = { ok: boolean; configured: boolean; contract?: string; vaultId?: string; agent?: string; seller?: string; mandate?: string | null; cap?: string | null; funds?: string | null; empty?: boolean; queued?: number; limits?: { maxChars: number; minChars: number }; busy?: boolean; error?: string };
 type StepKind = "offer" | "request" | "accept";
 type Step = { kind: StepKind; hash: string; label: string; event: FeedEvent | null; version: number };
-type ApiResult = { ok: boolean; busy?: boolean; error?: string; hash?: string; offerId?: string; requestId?: string; amount?: string };
+type ApiResult = { ok: boolean; busy?: boolean; network?: boolean; error?: string; hash?: string; offerId?: string; requestId?: string; amount?: string };
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const decided = (e: FeedEvent | null) => Boolean(e && (isSettled(e.status) || isProvisional(e.status) || isStuck(e.status)));
@@ -69,11 +69,15 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
   async function call(body: Record<string, unknown>, waiting: string): Promise<ApiResult | null> {
     let pageErrors = 0;
     for (let attempt = 0; attempt < 15; attempt++) {
-      setState({ busy: true, msg: attempt === 0 ? waiting : pageErrors ? "The site was briefly overloaded · trying again…" : "Another visitor is using the demo wallets · waiting your turn…", error: false });
+      setState({ busy: true, msg: attempt === 0 ? waiting : pageErrors ? "Network busy · trying again…" : "Another visitor is using the demo wallets · waiting your turn…", error: false });
       try {
         const res = await fetch("/api/try", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const out = await readJson<ApiResult>(res);
         if (out.ok && out.hash) return out;
+        if (out.network && ++pageErrors <= 2) {
+          await new Promise((r) => setTimeout(r, 4000));
+          continue;
+        }
         if (!out.busy) {
           setState({ busy: false, msg: out.error ?? "Something went wrong", error: true });
           return null;
@@ -157,8 +161,8 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
       )}
       {!config && <p className="note2">Loading the demo vault…</p>}
       {config && !config.configured && <p className="warn">Try it is not configured on this deployment</p>}
-      {config?.ok && config.empty && <p className="warn">The demo vault is empty right now, so new tries are paused · the team tops it up · the live feed still works</p>}
-      {config?.error && <p className="warn">Could not load the demo vault: {config.error}</p>}
+      {config?.ok && config.empty && <p className="warn">Demo is being refilled, try again in a few minutes</p>}
+      {config?.error && <p className="warn">{config.busy ? "Network busy · loading the demo vault again…" : `Could not load the demo vault: ${config.error}`}</p>}
 
       <div className="chips" role="group" aria-label="Example offers">
         {PRESETS.map((p, i) => (
@@ -172,7 +176,7 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
       {tooShort && <p className="note2">Write at least {min} characters to start</p>}
       {tooLong && <p className="warn err">The offer is {offer.length - max} characters over the limit · nothing is cut silently · shorten it to submit</p>}
       <div className="go">
-        <span>If the offer names an amount like 0.5 GEN that is the price · otherwise 0.5 GEN · limit {config?.limits?.perIpPerHour ?? 4} negotiations per hour per network</span>
+        <span>If the offer names an amount like 0.5 GEN that is the price · otherwise 0.5 GEN</span>
         <button className="btn hot" type="button" id="start" onClick={submit} disabled={running || tooShort || tooLong || !config?.ok || config.empty}>
           {running ? "Negotiation running…" : "Start the negotiation"}
         </button>
