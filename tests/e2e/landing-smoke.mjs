@@ -1,19 +1,20 @@
 // Landing smoke test in a real Chrome (Playwright). Covers every API answering JSON, every console tab,
-// wallet connect (an injected EIP-6963 test wallet), the faucet, fee review (cancelled, nothing is sent),
+// wallet connect (an injected EIP-6963 test wallet), the faucet with a fresh wallet, a real vault creation,
 // a negotiation share link, mobile, reduced motion, /v1, and Try it end to end:
 // "Upfront · no refund" → RENEGOTIATE → Seller accepts → ACCEPT → shareable timeline.
 //
 //   node tests/e2e/landing-smoke.mjs --base https://trustgatecheck.xyz [--out dir] [--skip-try]
 //
-// The test wallet key (E2E_OWNER_PRIVATE_KEY in .env.local, chain 61997 test GEN only) stays in Node;
-// it never enters the page and is never printed. Try it runs one real negotiation (a few minutes,
-// counts toward the per-network hourly limit). Exit code 1 when any step fails.
+// The wallet is a fresh throwaway test key made in Node for each run (--wallet e2e uses E2E_OWNER_PRIVATE_KEY
+// from .env.local); it signs in Node, never enters the page and is never printed. Chain 61997 test GEN only.
+// Try it runs one real negotiation (a few minutes); the vault step creates one real vault (0.5 GEN). Exit code 1 when any step fails.
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
-import { privateKeyToAccount } from "viem/accounts";
+import { createWalletClient, defineChain, http } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -25,8 +26,12 @@ const CHROME = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Applic
 
 fs.mkdirSync(OUT, { recursive: true });
 const RPC = "https://studio-dev.genlayer.com/api";
-const env = fs.readFileSync(path.join(ROOT, ".env.local"), "utf8");
-const owner = privateKeyToAccount(env.match(/^E2E_OWNER_PRIVATE_KEY=(0x[0-9a-fA-F]{64})/m)[1]);
+// A fresh throwaway test wallet per run (never printed or saved), so the faucet and vault creation run as
+// a new visitor would. --wallet e2e uses E2E_OWNER_PRIVATE_KEY from .env.local instead.
+const chain = defineChain({ id: 61997, name: "GenLayer Studio Next", nativeCurrency: { name: "GEN", symbol: "GEN", decimals: 18 }, rpcUrls: { default: { http: [RPC] } } });
+const ownerKey = arg("--wallet", "fresh") === "e2e" ? fs.readFileSync(path.join(ROOT, ".env.local"), "utf8").match(/^E2E_OWNER_PRIVATE_KEY=(0x[0-9a-fA-F]{64})/m)[1] : generatePrivateKey();
+const owner = privateKeyToAccount(ownerKey);
+const signer = createWalletClient({ account: owner, chain, transport: http(RPC) });
 
 const log = { base: BASE, startedAt: new Date().toISOString(), steps: [], consoleErrors: [] };
 const save = () => fs.writeFileSync(path.join(OUT, "smoke.json"), JSON.stringify(log, null, 2) + "\n");
@@ -58,7 +63,7 @@ const PROVIDER = (address) => `(() => {
           if (params[0].chainId.toLowerCase() === "0xf22d" && !state.added) throw err(4902, "Unrecognized chain ID");
           state.chainId = params[0].chainId.toLowerCase(); (listeners.chainChanged || []).forEach((l) => l(state.chainId)); return null;
         case "wallet_addEthereumChain": state.added = true; return null;
-        case "eth_sendTransaction": throw err(4001, "User rejected the transaction.");
+        case "eth_sendTransaction": return await window.__tgSend(JSON.stringify(params[0]));
         default: return JSON.parse(await window.__tgRpc(method, JSON.stringify(params ?? [])));
       }
     },
@@ -70,6 +75,12 @@ const PROVIDER = (address) => `(() => {
   window.addEventListener("eip6963:requestProvider", announce); announce();
 })();`;
 async function bridge(ctx) {
+  await ctx.exposeBinding("__tgSend", async (_s, json) => {
+    const tx = JSON.parse(json);
+    const hash = await signer.sendTransaction({ to: tx.to, data: tx.data, value: tx.value ? BigInt(tx.value) : undefined, gas: tx.gas ? BigInt(tx.gas) : undefined });
+    log.sent = [...(log.sent ?? []), hash];
+    return hash;
+  });
   await ctx.exposeBinding("__tgRpc", async (_s, method, params) => {
     const res = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params: JSON.parse(params) }) });
     const body = await res.json();
@@ -171,12 +182,26 @@ try {
     return w;
   });
 
-  await step("Get test GEN (faucet answers)", async () => {
+  await step("Get test GEN (faucet sends to the connected wallet)", async () => {
     await page.locator("header .btn", { hasText: "Get test GEN" }).click();
     const msg = page.locator(".tg-pop p").filter({ hasText: /sent|already|limit|Limit|claimed|once|try again/i }).first();
     await msg.waitFor({ timeout: 120000 });
     await shot(page, "04-faucet");
-    return { msg: (await msg.textContent())?.trim() };
+    const text = (await msg.textContent())?.trim();
+    const tx = await page.locator(".tg-pop a", { hasText: "tx" }).getAttribute("href").catch(() => null);
+    const fresh = arg("--wallet", "fresh") === "fresh";
+    // The faucet allows a few claims per network per day. When this network has used them up, the refusal
+    // is the expected answer; the fresh wallet then gets 1 GEN from the local E2E wallet for the vault step.
+    if (fresh && /network already made \d+ claims/i.test(text ?? "")) {
+      const e2e = privateKeyToAccount(fs.readFileSync(path.join(ROOT, ".env.local"), "utf8").match(/^E2E_OWNER_PRIVATE_KEY=(0x[0-9a-fA-F]{64})/m)[1]);
+      const hash = await createWalletClient({ account: e2e, chain, transport: http(RPC) }).sendTransaction({ to: owner.address, value: 10n ** 18n });
+      await page.locator("header .btn.hot").filter({ hasText: /[1-9][0-9.]* GEN/ }).waitFor({ timeout: 90000 });
+      return { msg: text, faucet: "refused: per-network daily limit (expected after earlier test runs)", fundedFromE2E: hash };
+    }
+    if (fresh && !/test GEN sent/.test(text ?? "")) throw new Error(`fresh wallet got: ${text}`);
+    // the header shows the new balance once the transfer is in
+    await page.locator("header .btn.hot").filter({ hasText: /[1-9][0-9.]* GEN/ }).waitFor({ timeout: 90000 });
+    return { msg: text, tx, header: (await page.locator("header .btn.hot").textContent())?.trim() };
   });
   await page.locator(".tg-pop .close").click().catch(() => {});
 
@@ -189,23 +214,30 @@ try {
     return { count };
   });
 
-  await step("Your wallet · Owner: create agent key, fee review, cancel", async () => {
+  await step("Your wallet · Owner: create agent key, review the fee, create a vault (0.5 GEN)", async () => {
     await tab(page, "Your wallet");
     await page.waitForTimeout(1500);
     const create = page.getByRole("button", { name: "Create agent key" });
     if (await create.count()) await create.click();
     await page.getByText("Back up or remove this key", { exact: true }).waitFor({ timeout: 5000 });
-    await page.locator("#tg-dep").fill("0.2");
+    await page.locator("#tg-dep").fill("0.5");
     await page.waitForTimeout(500);
-    const err = await page.locator("#p-wallet .box .warn.err").first().textContent().catch(() => null);
     const btn = page.getByRole("button", { name: "Review fee and create vault" });
     await shot(page, "06-owner");
-    if (await btn.isDisabled()) return { reviewed: false, blockedBy: err };
+    if (await btn.isDisabled()) throw new Error(`create vault blocked: ${await page.locator("#p-wallet .box .warn.err").first().textContent().catch(() => "?")}`);
     await btn.click();
     await page.locator(".v13-tx").filter({ hasText: /network fee up to/i }).waitFor({ timeout: 60000 });
     await shot(page, "07-fee-review");
-    await page.locator(".v13-tx").getByRole("button", { name: "Cancel" }).click();
-    return { reviewed: true };
+    await page.locator(".v13-tx").getByRole("button", { name: "Confirm in wallet" }).click();
+    await page.locator(".v13-tx").filter({ hasText: /Consensus reached|Finalized|No verdict|rejected|failed/i }).first().waitFor({ timeout: 240000 });
+    const status = (await page.locator(".v13-tx").first().textContent())?.trim();
+    const tx = await page.locator(".v13-tx a").first().getAttribute("href").catch(() => null);
+    if (!/Consensus reached|Finalized/.test(status ?? "")) throw new Error(`vault creation: ${status}`);
+    // the new vault shows up under Your vaults once the feed has it
+    await page.locator("#p-wallet .ownervault").first().waitFor({ timeout: 120000 });
+    const vault = (await page.locator("#p-wallet .ownervault b").first().textContent())?.trim();
+    await shot(page, "07b-vault-created");
+    return { tx, vault };
   });
 
   await step("Your wallet · Agent and Seller tabs", async () => {
@@ -231,7 +263,12 @@ try {
     const head = await page.locator("#p-feed .feedhead").textContent();
     const vaultTabs = await page.locator('#p-feed [aria-label="Vault"] .tab').count();
     await shot(page, "11-feed");
+    // The vault created above is selected and has no negotiations yet: pick the first vault tab that has some.
     const neg = page.locator("#p-feed .neglist button.row").first();
+    for (let i = 0; i < vaultTabs && !(await neg.count()); i++) {
+      await page.locator('#p-feed [aria-label="Vault"] .tab').nth(i).click();
+      await page.waitForTimeout(600);
+    }
     await neg.waitFor({ timeout: 30000 });
     await neg.click();
     await page.locator("#negotiation .v13-timeline").waitFor({ timeout: 30000 });
@@ -363,13 +400,19 @@ try {
     if (v2.verdict !== "ACCEPT") throw new Error(`expected ACCEPT on v2, got ${v2.verdict} (${v2.tx})`);
     await box.getByRole("button", { name: /Open the full negotiation timeline/ }).click();
     await p.locator("#negotiation .v13-timeline").waitFor({ timeout: 120000 });
-    const steps = await p.locator("#negotiation .v13-timeline > li").count();
+    // The last step can take a feed refresh to appear; the view says so and keeps polling.
+    const waitingShown = await p.getByText("Waiting for the final verdict").count();
+    let steps = 0;
+    for (let i = 0; i < 40 && steps < 4; i++) {
+      steps = await p.locator("#negotiation .v13-timeline > li").count();
+      if (steps < 4) await p.waitForTimeout(5000);
+    }
     await p.waitForTimeout(1000);
     await shot(p, "23-try-it-timeline");
     const url = p.url();
     await c.close();
     if (steps < 4) throw new Error(`timeline has ${steps} steps`);
-    return { v1, v2, url, steps };
+    return { v1, v2, url, steps, waitingShownWhileIndexing: waitingShown > 0 };
   });
 
   await step("every site API answer was JSON", async () => {

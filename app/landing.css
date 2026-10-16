@@ -260,7 +260,7 @@ body:has(.tg)::after{content:"";position:fixed;inset:0;z-index:1;pointer-events:
 .tg .negwrap .hud.negmodal{width:min(860px,100%);--ry:0deg;transform:none;background:linear-gradient(rgba(5,3,9,.9),rgba(5,3,9,.9)),repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px);min-height:0;display:block;padding:24px 28px 22px 32px}
 .tg .negview{display:flex;flex-direction:column;gap:10px}
 .tg .outcome{margin:0;border-left:3px solid var(--cyan);padding:8px 10px;font:700 13px/1.4 var(--hud);letter-spacing:.06em;text-transform:uppercase;color:var(--cyan)}
-.tg .outcome.r{border-color:var(--yellow);color:var(--yellow)} .tg .outcome.x{border-color:var(--pink);color:var(--pink)}
+.tg .outcome.r{border-color:var(--yellow);color:var(--yellow)} .tg .outcome.p{border-color:var(--grey);color:var(--white)} .tg .outcome.x{border-color:var(--pink);color:var(--pink)}
 .tg .v13-timeline{list-style:none;margin:0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:10px;border-left:1px dashed var(--dim)}
 .tg .v13-step{position:relative;display:flex;flex-direction:column;gap:6px;border:1px solid var(--dim);padding:10px 12px;background:rgba(255,255,255,.015);min-width:0}
 .tg .v13-step::before{content:"";position:absolute;left:-24px;top:14px;width:9px;height:9px;border-radius:50%;background:var(--pink);box-shadow:0 0 8px var(--pink)}

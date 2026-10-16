@@ -111,9 +111,24 @@ function Step({ s, n, prev }: { s: TimelineStep; n: Negotiation; prev?: Offer })
   );
 }
 
+// A verdict is still on its way when a request is being judged, or when the latest offer is fresh and
+// open (Try it requests it right away, but the request may not be indexed yet). The page's feed keeps
+// polling, so the final step appears here on its own.
+const FRESH_OFFER_MS = 15 * 60 * 1000;
+function verdictPending(n: Negotiation) {
+  if (n.status !== "OPEN") return false;
+  if (n.timeline.some((s) => s.kind === "request" && s.request.stage === "PENDING")) return true;
+  if (n.latest.status === "JUDGING") return true;
+  if (n.latest.status !== "OPEN") return false;
+  const step = n.timeline.find((s) => s.kind === "offer" && s.offer.offerId === n.latest.offerId);
+  const at = step?.event.createdAt ? Date.parse(step.event.createdAt) : NaN;
+  return Number.isFinite(at) && Date.now() - at < FRESH_OFFER_MS;
+}
+
 export function NegotiationView({ n, contract, onClose }: { n: Negotiation; contract?: string; onClose?: () => void }) {
   const [copied, setCopied] = useState(false);
-  const outcome = n.status === "ACCEPTED" ? "Deal accepted · funds credited to the seller" : n.status === "DECLINED" ? "Seller declined · no deal" : n.status === "WITHDRAWN" ? "Buyer withdrew · no deal" : STATUS_TEXT[n.latest.status] ?? n.latest.status;
+  const waiting = verdictPending(n);
+  const outcome = waiting ? "Waiting for the final verdict…" : n.status === "ACCEPTED" ? "Deal accepted · funds credited to the seller" : n.status === "DECLINED" ? "Seller declined · no deal" : n.status === "WITHDRAWN" ? "Buyer withdrew · no deal" : STATUS_TEXT[n.latest.status] ?? n.latest.status;
   return (
     <div className="negview">
       <div className="stats">
@@ -122,7 +137,7 @@ export function NegotiationView({ n, contract, onClose }: { n: Negotiation; cont
         <div><small>Seller</small><b>{short(n.seller)}</b></div>
         <div><small>Versions</small><b>{n.offers.length}</b></div>
       </div>
-      <p className={`outcome ${n.status === "ACCEPTED" ? "a" : n.status === "OPEN" ? "r" : "x"}`}><b>{outcome}</b></p>
+      <p className={`outcome ${waiting ? "p" : n.status === "ACCEPTED" ? "a" : n.status === "OPEN" ? "r" : "x"}`} aria-live="polite"><b>{outcome}</b>{waiting && <span className="count"> · GenLayer validators take a few minutes · this view updates on its own</span>}</p>
       <ol className="v13-timeline">
         {n.timeline.map((s, i) => {
           const prev = s.kind === "offer" && s.offer.previousOfferId ? n.offers.find((o) => o.offerId === s.offer.previousOfferId) : undefined;

@@ -5,6 +5,7 @@ import { abi, createClient } from "genlayer-js";
 import { studioDevnet } from "genlayer-js/chains";
 import type { FeedEvent, Judgment } from "@/lib/vault";
 import { slimJson } from "@/lib/slim-json";
+import { limits } from "@/lib/server-env";
 
 // Vault feed built from the contract's transaction history (calldata + the leader's nondet
 // outputs). Studio Next contract reads (gen_call) were failing for every contract during
@@ -183,12 +184,46 @@ function refresh(contract: string): Promise<Cached> {
     .then(async (events) => {
       const entry = { at: Date.now(), events };
       memory.set(contract, entry);
-      await edgeCache()?.put(cacheKey(contract), new Response(JSON.stringify(entry), { headers: { "content-type": "application/json", "cache-control": "max-age=3600" } })).catch(() => undefined);
+      const body = JSON.stringify(entry);
+      await edgeCache()?.put(cacheKey(contract), new Response(body, { headers: { "content-type": "application/json", "cache-control": "max-age=3600" } })).catch(() => undefined);
+      await saveToKv(contract, body);
       return entry;
     })
     .finally(() => refreshing.delete(contract));
   refreshing.set(contract, p);
   return p;
+}
+
+// A second shared copy in KV for isolates with neither memory nor an edge-cache copy (a cold data
+// centre, or workers.dev where the Cache API does nothing). Without it such an isolate has to refresh
+// inside the request, goes over its CPU budget and is stopped, and the next one starts cold again.
+// Written at most every 10 minutes per contract to stay far below the KV daily write allowance.
+const KV_EVERY_MS = 10 * 60 * 1000;
+const kvKey = (contract: string) => `feed:${contract.toLowerCase()}`;
+const kvSavedAt = new Map<string, number>();
+
+async function saveToKv(contract: string, body: string) {
+  if (Date.now() - (kvSavedAt.get(contract) ?? 0) < KV_EVERY_MS) return;
+  kvSavedAt.set(contract, Date.now());
+  try {
+    const last = Number((await limits().get(`${kvKey(contract)}:at`)) ?? "0");
+    if (Date.now() - last < KV_EVERY_MS) return;
+    await limits().put(kvKey(contract), body, { expirationTtl: 7 * 24 * 3600 });
+    await limits().put(`${kvKey(contract)}:at`, String(Date.now()), { expirationTtl: 7 * 24 * 3600 });
+  } catch {}
+}
+
+async function fromKv(contract: string): Promise<Cached | null> {
+  try {
+    const raw = await limits().get(kvKey(contract));
+    const hit = raw ? (JSON.parse(raw) as Cached) : null;
+    if (hit && Array.isArray(hit.events)) {
+      memory.set(contract, hit);
+      kvSavedAt.set(contract, Date.now()); // another isolate wrote it just now or earlier; don't rewrite at once
+      return hit;
+    }
+  } catch {}
+  return null;
 }
 
 async function fromEdge(contract: string): Promise<Cached | null> {
@@ -215,6 +250,7 @@ export async function getFeed(contract: string, opts: { refresh?: boolean } = {}
   let hit = memory.get(contract) ?? null;
   const stale = (c: Cached | null) => !c || Date.now() - c.at >= FRESH_MS;
   if (stale(hit) && Date.now() - (lastEdgeCheck.get(contract) ?? 0) > EDGE_CHECK_MS) hit = await fromEdge(contract);
+  if (!hit) hit = await fromKv(contract);
   if (hit && !stale(hit)) return { ...hit, stale: false };
   if (hit) {
     if (allowRefresh) await refreshInBackground(contract);

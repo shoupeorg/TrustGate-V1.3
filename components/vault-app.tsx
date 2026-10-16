@@ -765,7 +765,7 @@ export function VaultApp() {
             {negotiation ? (
               <NegotiationView n={negotiation} contract={contract !== VAULT_CONTRACTS[0].address ? contract : undefined} onClose={closeNegotiation} />
             ) : (
-              <p className="note2">{feed.loading ? "Loading the contract history…" : <>Negotiation <code>{openNeg}</code> is not on this contract yet · a new offer can take a minute to appear · <button className="link" type="button" onClick={closeNegotiation}>Close</button></>}</p>
+              <p className="note2">{feed.loading ? "Loading the contract history…" : <>Waiting for the final verdict… · negotiation <code>{openNeg}</code> is not on this contract yet · a new offer can take a minute to appear · this view updates on its own · <button className="link" type="button" onClick={closeNegotiation}>Close</button></>}</p>
             )}
           </div>
         </div>
