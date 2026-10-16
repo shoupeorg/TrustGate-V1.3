@@ -10,110 +10,49 @@ type Robust = { contract: string; runs: number; systems: Record<string, { cases:
 type Negotiation = { label: string; dir: string; total: number; expected: Record<string, number>; systems: { trustgate: { match: number; by: Record<string, number>; unsafePaid: number }; rules: { unsafePaid: number } } } | null;
 const S = summary as unknown as { main: RunSummary; heldout: RunSummary; negotiation: Negotiation; robustness: Robust };
 
+const REPO = "https://github.com/shoupeorg/TrustGate-V1.3/blob/main/";
+const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : "-");
+// "Held-out set (written before the fix, never used for tuning)" → "Held-out set · written before the fix · never used for tuning"
+const title = (s: string) => s.replace(/\s*\((.*)\)$/, (_, inner: string) => " · " + inner.replace(/,\s*/g, " · "));
+const Link = ({ dir }: { dir: string }) => <a href={REPO + dir + "/results.md"} target="_blank" rel="noreferrer">per-case results and transactions</a>;
+
+// The headline uses the held-out set when it exists (the numbers that count), else the main set.
+export function headlineNumbers() {
+  const run = S.heldout ?? S.main;
+  const rules = run?.methods.rules;
+  const tg = run?.methods.trustgate;
+  const f = (x?: number[]) => (x ? `${x[0]}/${x[1]}` : "-");
+  return {
+    rulesUnsafe: rules?.unsafePaid ?? "-",
+    tgUnsafe: tg?.unsafePaid ?? "-",
+    scored: rules?.scored ?? "-",
+    greyRules: f(rules?.grey),
+    greyTg: f(tg?.grey),
+    injRules: f(rules?.inject),
+    injTg: f(tg?.inject),
+    tgFalse: tg?.falseBlocks ?? "-",
+  };
+}
+
 function NegotiationTable() {
   const n = S.negotiation;
   if (!n) return null;
   const tg = n.systems.trustgate;
   return (
-    <div className="v13-table">
-      <table>
-        <caption>{n.label} · <a href={REPO + n.dir + "/results.md"} target="_blank" rel="noreferrer">per-case results and transactions</a></caption>
-        <thead><tr><th scope="col">Expected decision</th><th scope="col">Cases</th><th scope="col">TrustGate on GenLayer</th><th scope="col">Normal smart contract</th></tr></thead>
-        <tbody>
-          <tr><th scope="row">RENEGOTIATE (fixable terms)</th><td>{n.expected.RENEGOTIATE}</td><td>{tg.by.RENEGOTIATE}/{n.expected.RENEGOTIATE}</td><td>cannot renegotiate</td></tr>
-          <tr><th scope="row">REJECT</th><td>{n.expected.REJECT}</td><td>{tg.by.REJECT}/{n.expected.REJECT}</td><td>cannot judge</td></tr>
-          <tr><th scope="row">ACCEPT</th><td>{n.expected.ACCEPT}</td><td>{tg.by.ACCEPT}/{n.expected.ACCEPT}</td><td>—</td></tr>
-          <tr><th scope="row">Unsafe payments made</th><td></td><td className={tg.unsafePaid ? "bad" : "good"}>{tg.unsafePaid}</td><td className={n.systems.rules.unsafePaid ? "bad" : "good"}>{n.systems.rules.unsafePaid}</td></tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
-const REPO = "https://github.com/shoupeorg/TrustGate-V1.3/blob/main/";
-const pct = (a: number, b: number) => (b ? `${Math.round((100 * a) / b)}%` : "-");
-
-// The headline uses the held-out set when it exists (the numbers that count), else the main set.
-function headlineRun(): RunSummary {
-  return S.heldout ?? S.main;
-}
-
-export function GenLayerHeadline() {
-  const run = headlineRun();
-  const rules = run?.methods.rules;
-  const tg = run?.methods.trustgate;
-  if (!run || !rules || !tg) return null;
-  return (
-    <div className="v13-headline">
-      <p className="v13-headline-big">
-        Without GenLayer, the blockchain approved <b>{rules.unsafePaid}</b> unsafe payment{rules.unsafePaid === 1 ? "" : "s"}. With GenLayer, <b>{tg.unsafePaid}</b>.
-      </p>
-      <p className="v13-note">
-        {run.label}: the same {rules.scored} requests checked by a normal smart contract with hard-coded rules, and by TrustGate on GenLayer. <a href="#benchmark">See the benchmark</a>.
-      </p>
-    </div>
-  );
-}
-
-export function ThreeOptions() {
-  return (
-    <div className="v13-options">
-      <table>
-        <caption>Where can an agent&apos;s money be held, and who understands the deal?</caption>
-        <thead>
-          <tr><th scope="col">Option</th><th scope="col">Holds the money with no owner in control</th><th scope="col">Understands the deal</th></tr>
-        </thead>
-        <tbody>
-          <tr><th scope="row">Normal smart contract</th><td className="yes">Yes</td><td className="no">No (only fixed rules)</td></tr>
-          <tr><th scope="row">AI on a private server</th><td className="no">No (whoever runs the server controls it)</td><td className="yes">Yes</td></tr>
-          <tr><th scope="row">GenLayer</th><td className="yes">Yes</td><td className="yes">Yes</td></tr>
-        </tbody>
-      </table>
-      <p className="v13-note"><b>GenLayer is the only option that does both.</b> An AI gate on a server means someone controls the decision over your money. On GenLayer nobody does: the contract holds the funds and independent validators decide.</p>
-    </div>
-  );
-}
-
-export function HowItWorksDiagram() {
-  return (
-    <figure className="v13-diagram">
-      <svg viewBox="0 0 760 200" role="img" aria-labelledby="diag-title diag-desc">
-        <title id="diag-title">Two agents, one verdict</title>
-        <desc id="diag-desc">The buyer&apos;s agent and the seller&apos;s agent both talk to the TrustGate contract on GenLayer. The seller signs every offer version; the buyer&apos;s agent requests by offer id. GenLayer validators decide accept, renegotiate or reject. TrustGate has no AI of its own.</desc>
-        <defs>
-          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" /></marker>
-        </defs>
-        <g fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="10" y="40" width="170" height="90" rx="6" />
-          <rect x="285" y="30" width="190" height="110" rx="6" />
-          <rect x="580" y="40" width="170" height="90" rx="6" />
-          <line x1="184" y1="85" x2="281" y2="85" markerStart="url(#arrow)" markerEnd="url(#arrow)" />
-          <line x1="479" y1="85" x2="576" y2="85" markerStart="url(#arrow)" markerEnd="url(#arrow)" />
-          <line x1="380" y1="142" x2="380" y2="166" markerEnd="url(#arrow)" />
-        </g>
-        <g fill="currentColor" fontFamily="Arial, Helvetica, sans-serif" textAnchor="middle">
-          <text x="95" y="72" fontSize="15" fontWeight="700">Buyer&apos;s agent</text>
-          <text x="95" y="94" fontSize="12">works for the vault owner</text>
-          <text x="95" y="112" fontSize="12">requests by offer id</text>
-          <text x="380" y="60" fontSize="15" fontWeight="700">TrustGate contract</text>
-          <text x="380" y="80" fontSize="12">on GenLayer</text>
-          <text x="380" y="100" fontSize="12">holds funds, hard limits,</text>
-          <text x="380" y="118" fontSize="12">stores signed offers</text>
-          <text x="665" y="72" fontSize="15" fontWeight="700">Seller&apos;s agent</text>
-          <text x="665" y="94" fontSize="12">signs every version</text>
-          <text x="665" y="112" fontSize="12">accepts, counters, declines</text>
-          <text x="380" y="186" fontSize="13" fontWeight="700">GenLayer validators decide: ACCEPT · RENEGOTIATE · REJECT</text>
-        </g>
-      </svg>
-      <ol className="v13-diagram-mobile">
-        <li><b>Buyer&apos;s agent</b>: works for the vault owner, requests by offer id</li>
-        <li><b>TrustGate contract on GenLayer</b>: holds the funds, hard limits, stores signed offers</li>
-        <li><b>Seller&apos;s agent</b>: signs every version; accepts, counters or declines</li>
-        <li><b>GenLayer validators decide</b>: ACCEPT · RENEGOTIATE · REJECT</li>
-      </ol>
-      <figcaption className="v13-note">
-        TrustGate has no AI of its own: the judgment is GenLayer&apos;s validators, and both sides read the same verdict. The demo&apos;s <code>agent_brain.py</code> only gives the demo agents (buyer and seller) a model to think with; it never judges anything.
-      </figcaption>
-    </figure>
+    <>
+      <h3>{title(n.label)} · <Link dir={n.dir} /></h3>
+      <div className="tw">
+        <table>
+          <thead><tr><th scope="col">Expected decision</th><th scope="col">Cases</th><th scope="col">TrustGate on GenLayer</th><th scope="col">Normal smart contract</th></tr></thead>
+          <tbody>
+            <tr><td>RENEGOTIATE · fixable terms</td><td>{n.expected.RENEGOTIATE}</td><td>{tg.by.RENEGOTIATE}/{n.expected.RENEGOTIATE}</td><td>cannot renegotiate</td></tr>
+            <tr><td>REJECT</td><td>{n.expected.REJECT}</td><td>{tg.by.REJECT}/{n.expected.REJECT}</td><td>cannot judge</td></tr>
+            <tr><td>ACCEPT</td><td>{n.expected.ACCEPT}</td><td>{tg.by.ACCEPT}/{n.expected.ACCEPT}</td><td>—</td></tr>
+            <tr><td>Unsafe payments made</td><td></td><td className={tg.unsafePaid ? "bad" : "good"}>{tg.unsafePaid}</td><td className={n.systems.rules.unsafePaid ? "bad" : "good"}>{n.systems.rules.unsafePaid}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -121,7 +60,7 @@ function Row({ name, m }: { name: string; m?: MethodStats }) {
   if (!m) return null;
   return (
     <tr>
-      <th scope="row">{name}</th>
+      <td>{name}</td>
       <td>{m.correct}/{m.scored}</td>
       <td className={m.unsafePaid ? "bad" : "good"}>{m.unsafePaid}</td>
       <td>{m.grey[0]}/{m.grey[1]}</td>
@@ -131,62 +70,81 @@ function Row({ name, m }: { name: string; m?: MethodStats }) {
   );
 }
 
-function RunTable({ run, offchain }: { run: RunSummary; offchain?: boolean }) {
+function RunTable({ run, offchain, heading }: { run: RunSummary; offchain?: boolean; heading?: string }) {
   if (!run) return null;
   return (
-    <div className="v13-table">
-      <table>
-        <caption>{run.label} · <a href={REPO + run.dir + "/results.md"} target="_blank" rel="noreferrer">per-case results and transactions</a></caption>
-        <thead><tr><th scope="col">Method</th><th scope="col">Correct</th><th scope="col">Unsafe payments made</th><th scope="col">Grey cases caught</th><th scope="col">Judge-targeted injections caught</th><th scope="col">Safe requests blocked</th></tr></thead>
-        <tbody>
-          {offchain ? (
-            <>
-              <Row name="Single AI model, plain prompt (private server)" m={run.methods.llm_plain} />
-              <Row name="Single AI model, TrustGate's prompt (private server)" m={run.methods.llm_prompt} />
-              <Row name="TrustGate on GenLayer (for reference)" m={run.methods.trustgate} />
-            </>
-          ) : (
-            <>
-              <Row name="Normal smart contract (hard-coded rules)" m={run.methods.rules} />
-              <Row name="TrustGate on GenLayer" m={run.methods.trustgate} />
-            </>
-          )}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <h3>{heading ?? title(run.label)} · <Link dir={run.dir} /></h3>
+      <div className="tw">
+        <table>
+          <thead><tr><th scope="col">Method</th><th scope="col">Correct</th><th scope="col">Unsafe payments made</th><th scope="col">Grey cases caught</th><th scope="col">Judge-targeted injections caught</th><th scope="col">Safe requests blocked</th></tr></thead>
+          <tbody>
+            {offchain ? (
+              <>
+                <Row name="Single AI model · plain prompt · private server" m={run.methods.llm_plain} />
+                <Row name="Single AI model · TrustGate's prompt · private server" m={run.methods.llm_prompt} />
+                <Row name="TrustGate on GenLayer · for reference" m={run.methods.trustgate} />
+              </>
+            ) : (
+              <>
+                <Row name="Normal smart contract · hard-coded rules" m={run.methods.rules} />
+                <Row name="TrustGate on GenLayer" m={run.methods.trustgate} />
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
-export function BenchmarkSection() {
+const shortTitle = (s: string) => s.replace(/\s*\(.*\)$/, "");
+
+export function BenchmarkPane() {
   const R = S.robustness;
+  const earlier: Array<[string, string]> = [
+    ["experiments/benchmark/run-heldout-negotiation/results.md", "held-out on the first negotiation contract"],
+    ["experiments/benchmark/run-41-v5/results.md", "run-41-v5 (38/40)"],
+    ["experiments/benchmark/run-heldout-v5/results.md", "held-out on the one-sided v5 contract"],
+    ["experiments/benchmark/run-41-v4/results.md", "run-41-v4 (first fix, 39/40)"],
+    ["experiments/benchmark/false-block-diagnosis.json", "diagnosis of the 4 false blocks"],
+    ["experiments/benchmark/run-41-v3/results.md", "run-41-v3, before the fix (36/40, 4 safe blocked)"],
+    ["experiments/benchmark/run-41-v3-allowlist/results.md", "allowlist variant"],
+    ["experiments/benchmark/run-41/results.md", "first 41-case run"],
+    ["experiments/benchmark/results.md", "first 20-case run"],
+  ];
   return (
-    <section className="v13-feed" id="benchmark" aria-labelledby="bench-title">
-      <p className="eyebrow">Benchmark</p>
-      <h2 id="bench-title">On-chain: a normal smart contract vs. TrustGate on GenLayer</h2>
-      <p className="v13-note">Both hold the money on-chain with nobody in control. The difference is whether the contract can understand the deal. <b>Grey</b> cases pass every hard-coded rule and keyword check (a payout wallet &quot;updated this morning&quot;, escrow the seller controls, refunds &quot;at the vendor&apos;s discretion&quot;). <b>Judge-targeted injections</b> try to order the reviewer to approve.</p>
+    <div id="benchmark">
+      <p className="lead">Both hold the money on-chain with nobody in control · the difference is whether the contract can understand the deal · grey cases pass every hard-coded rule and keyword check · a payout wallet updated this morning · escrow the seller controls · refunds at the vendor&apos;s discretion · judge-targeted injections try to order the reviewer to approve</p>
       <RunTable run={S.heldout} />
       <RunTable run={S.main} />
       <NegotiationTable />
-      <p className="v13-note">These cases show behaviour, not a precise accuracy; we wrote them ourselves. In the 41-case set, limit-03 (a 0 GEN, harmless case) is not scored for any method, and TrustGate could not even be asked: the negotiation contract refuses 0 GEN offers. Earlier runs stay published: <a href={REPO + "experiments/benchmark/run-heldout-negotiation/results.md"} target="_blank" rel="noreferrer">held-out on the first negotiation contract</a>, <a href={REPO + "experiments/benchmark/run-41-v5/results.md"} target="_blank" rel="noreferrer">run-41-v5 (38/40)</a>, <a href={REPO + "experiments/benchmark/run-heldout-v5/results.md"} target="_blank" rel="noreferrer">held-out on the one-sided v5 contract</a>, <a href={REPO + "experiments/benchmark/run-41-v4/results.md"} target="_blank" rel="noreferrer">run-41-v4 (first fix, 39/40)</a>, <a href={REPO + "experiments/benchmark/false-block-diagnosis.json"} target="_blank" rel="noreferrer">diagnosis of the 4 false blocks</a>, <a href={REPO + "experiments/benchmark/run-41-v3/results.md"} target="_blank" rel="noreferrer">run-41-v3, before the fix (36/40, 4 safe blocked)</a>, <a href={REPO + "experiments/benchmark/run-41-v3-allowlist/results.md"} target="_blank" rel="noreferrer">allowlist variant</a>, <a href={REPO + "experiments/benchmark/run-41/results.md"} target="_blank" rel="noreferrer">first 41-case run</a>, <a href={REPO + "experiments/benchmark/results.md"} target="_blank" rel="noreferrer">first 20-case run</a>.</p>
-
-      <h3>Off-chain comparison: a centralized AI gate on a private server (what you&apos;d build without GenLayer)</h3>
-      <p className="v13-note">A single AI model on a private server reaches similar accuracy, but it cannot hold funds without an owner, so it is not an on-chain alternative.</p>
-      <RunTable run={S.heldout} offchain />
-      <RunTable run={S.main} offchain />
+      <p className="note2">
+        These cases show behaviour, not a precise accuracy · we wrote them ourselves · in the 41-case set, limit-03 (a 0 GEN, harmless case) is not scored for any method, and TrustGate could not even be asked: the negotiation contract refuses 0 GEN offers · earlier runs stay published:{" "}
+        {earlier.map(([href, label], i) => (
+          <span key={href}>{i ? ", " : ""}<a href={REPO + href} target="_blank" rel="noreferrer">{label}</a></span>
+        ))}
+      </p>
+      <h3>Off-chain comparison · a centralized AI gate on a private server · what you&apos;d build without GenLayer</h3>
+      <p className="note2">A single AI model on a private server reaches similar accuracy, but it cannot hold funds without an owner, so it is not an on-chain alternative</p>
+      <RunTable run={S.heldout} offchain heading={S.heldout ? shortTitle(S.heldout.label) : undefined} />
+      <RunTable run={S.main} offchain heading={S.main ? shortTitle(S.main.label) : undefined} />
       {R && (
-        <div className="v13-table">
-          <table>
-            <caption>Robustness: every grey and injection case, {R.runs} runs each · <a href={REPO + "experiments/robustness/results.md"} target="_blank" rel="noreferrer">per case</a></caption>
-            <thead><tr><th scope="col">System</th><th scope="col">Runs</th><th scope="col">Unsafe ACCEPT rate</th><th scope="col">Flip rate (same input, different answer)</th></tr></thead>
-            <tbody>
-              {[["trustgate", "TrustGate on GenLayer"], ["llm_plain", "Single AI model, plain prompt"], ["llm_prompt", "Single AI model, TrustGate's prompt"]].map(([k, name]) => {
-                const x = R.systems[k];
-                return x ? <tr key={k}><th scope="row">{name}</th><td>{x.runs}</td><td>{x.unsafe} ({pct(x.unsafe, x.runs)})</td><td>{x.flips} ({pct(x.flips, x.runs)})</td></tr> : null;
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <h3>Robustness · every grey and injection case · {R.runs} runs each · <a href={REPO + "experiments/robustness/results.md"} target="_blank" rel="noreferrer">per case</a></h3>
+          <div className="tw">
+            <table>
+              <thead><tr><th scope="col">System</th><th scope="col">Runs</th><th scope="col">Unsafe ACCEPT rate</th><th scope="col">Flip rate · same input, different answer</th></tr></thead>
+              <tbody>
+                {[["trustgate", "TrustGate on GenLayer"], ["llm_plain", "Single AI model · plain prompt"], ["llm_prompt", "Single AI model · TrustGate's prompt"]].map(([k, name]) => {
+                  const x = R.systems[k];
+                  return x ? <tr key={k}><td>{name}</td><td>{x.runs}</td><td>{x.unsafe} ({pct(x.unsafe, x.runs)})</td><td>{x.flips} ({pct(x.flips, x.runs)})</td></tr> : null;
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
-    </section>
+    </div>
   );
 }

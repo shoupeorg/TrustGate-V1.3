@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import "./v13.css";
 
 export const metadata: Metadata = {
   title: "TrustGate V1.3",
