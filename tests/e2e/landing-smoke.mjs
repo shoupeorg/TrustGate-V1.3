@@ -190,13 +190,13 @@ try {
     const text = (await msg.textContent())?.trim();
     const tx = await page.locator(".tg-pop a", { hasText: "tx" }).getAttribute("href").catch(() => null);
     const fresh = arg("--wallet", "fresh") === "fresh";
-    // The faucet allows a few claims per network per day. When this network has used them up, the refusal
-    // is the expected answer; the fresh wallet then gets 1 GEN from the local E2E wallet for the vault step.
-    if (fresh && /network already made \d+ claims/i.test(text ?? "")) {
+    // A fresh wallet always gets test GEN unless the whole site used up today's budget; then the refusal is
+    // the expected answer and the wallet gets 1 GEN from the local E2E wallet for the vault step.
+    if (fresh && /come back tomorrow|resets at 00:00 UTC/i.test(text ?? "")) {
       const e2e = privateKeyToAccount(fs.readFileSync(path.join(ROOT, ".env.local"), "utf8").match(/^E2E_OWNER_PRIVATE_KEY=(0x[0-9a-fA-F]{64})/m)[1]);
       const hash = await createWalletClient({ account: e2e, chain, transport: http(RPC) }).sendTransaction({ to: owner.address, value: 10n ** 18n });
       await page.locator("header .btn.hot").filter({ hasText: /[1-9][0-9.]* GEN/ }).waitFor({ timeout: 90000 });
-      return { msg: text, faucet: "refused: per-network daily limit (expected after earlier test runs)", fundedFromE2E: hash };
+      return { msg: text, faucet: "refused: site-wide daily budget used up", fundedFromE2E: hash };
     }
     if (fresh && !/test GEN sent/.test(text ?? "")) throw new Error(`fresh wallet got: ${text}`);
     // the header shows the new balance once the transfer is in

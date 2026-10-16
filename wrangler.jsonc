@@ -5,6 +5,8 @@
 	"name": "trustgate-v13",
 	"compatibility_date": "2026-09-29",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	// Workers Paid: allow up to 300 ms CPU per request (a feed refresh parses a large history).
+	"limits": { "cpu_ms": 300 },
 	"assets": {
 		"directory": ".open-next/assets",
 		"binding": "ASSETS",

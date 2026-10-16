@@ -581,7 +581,7 @@ export function VaultApp() {
               {/* YOUR WALLET */}
               <div className="pane" role="tabpanel" id="p-wallet" aria-labelledby="tab-wallet" hidden={tab !== "wallet"}>
                 <div className="walletbar">
-                  <span className="wstat">{wallet ? <>Connected <a href={EXPLORER_ADDRESS + wallet.address} target="_blank" rel="noreferrer"><code>{short(wallet.address)}</code></a> · {walletBalance === null ? "…" : `${formatGen(walletBalance)} GEN`} · Studio Next 61997</> : "No wallet connected · MetaMask or Rabby · the Studio Next network (chain 61997) is added automatically"}</span>
+                  <span className="wstat">{wallet ? <>Connected <a href={EXPLORER_ADDRESS + wallet.address} target="_blank" rel="noreferrer"><code>{short(wallet.address)}</code></a> · {walletBalance === null ? "…" : `${formatGen(walletBalance)} GEN`} · Studio Next 61997</> : "No wallet connected · MetaMask or Rabby · the Studio Next network (chain 61997) is added automatically"} · Get test GEN gives 2 GEN, up to 3 times per wallet per day{""}</span>
                   <span className="three">
                     <button className="btn" type="button" onClick={() => getTestGen("pane")} disabled={faucet?.busy}>{faucet?.busy ? "Sending…" : "Get test GEN"}</button>
                     <button className="btn hot" type="button" onClick={() => openConnect("pane")} aria-expanded={pop?.where === "pane"}>{wallet ? "Wallet" : walletLabel}</button>

@@ -80,7 +80,7 @@ Buyer's agent ── request_commitment(request_id, vault_id, offer_id, terms_ha
 ```
 
 - **Website:** Next.js 16 on Cloudflare Workers (OpenNext). The feed is rebuilt from the contract's transaction history (`sim_getTransactionsForAddress`) because Studio Next contract reads were failing during development. The page shows which source it used.
-- **Server routes:** `/api/vault-feed` (history → slim feed), `/api/test-gen` (faucet, KV rate limits), `/api/try` (demo seller posts the visitor's offer, demo agent requests it, demo seller can sign a counterproposal; no per-visitor limit, only a site-wide safety cap and automatic refills of the demo wallets). Keys live only in Cloudflare secrets / `.env.local`.
+- **Server routes:** `/api/vault-feed` (history → slim feed), `/api/test-gen` (faucet: 2 GEN per claim, up to 3 claims per wallet per day, 150 claims per day for the whole site, no limit per network), `/api/try` (demo seller posts the visitor's offer, demo agent requests it, demo seller can sign a counterproposal; no per-visitor limit, only a site-wide safety cap and automatic refills of the demo wallets). Keys live only in Cloudflare secrets / `.env.local`.
 - **Negotiation state** (offers, versions, verdicts, timeline) is replayed from the same history by [`lib/negotiation.ts`](lib/negotiation.ts), shared by the site and the MCP server.
 
 ## Contracts (Studio Next, chain 61997)
