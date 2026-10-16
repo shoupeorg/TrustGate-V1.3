@@ -48,3 +48,6 @@ next-env.d.ts
 /mcp/node_modules/
 /mcp/dist/
 mcp/src/negotiation.ts
+
+# Landing smoke test output
+/experiments/e2e/landing-smoke/

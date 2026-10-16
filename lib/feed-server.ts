@@ -4,6 +4,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { abi, createClient } from "genlayer-js";
 import { studioDevnet } from "genlayer-js/chains";
 import type { FeedEvent, Judgment } from "@/lib/vault";
+import { slimJson } from "@/lib/slim-json";
 
 // Vault feed built from the contract's transaction history (calldata + the leader's nondet
 // outputs). Studio Next contract reads (gen_call) were failing for every contract during
@@ -83,7 +84,7 @@ async function history(contract: string): Promise<RawTx[]> {
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`Studio Next RPC returned HTTP ${response.status}`);
-      const payload = (await response.json()) as { result?: RawTx[]; error?: { message?: string } };
+      const payload = JSON.parse(slimJson(await response.text())) as { result?: RawTx[]; error?: { message?: string } };
       if (payload.error) throw new Error(payload.error.message || "Studio Next RPC error");
       return payload.result ?? [];
     } catch (e) {
@@ -140,15 +141,24 @@ export async function probeContractReads(contract: string): Promise<{ ok: boolea
 }
 
 // ---------------------------------------------------------------- cached feed
-// The raw history carries a full contract snapshot per transaction, so it grows fast (24 MB / 18 s
-// for a contract with ~100 transactions). Serve a cached slim feed and refresh it in the background:
-// per-isolate memory first, then the Cloudflare Cache API (shared across isolates), then Studio Next.
+// The raw history carries a full contract snapshot per transaction, so it grows fast (14 MB for 55
+// transactions). Serve a cached slim feed and refresh it in the background: per-isolate memory first,
+// then the Cloudflare Cache API (shared across isolates), then Studio Next.
 
 type Cached = { at: number; events: FeedEvent[] };
 const memory = new Map<string, Cached>();
 const refreshing = new Map<string, Promise<Cached>>();
-const FRESH_MS = 10000;
+const lastEdgeCheck = new Map<string, number>();
+// One refresh (a full history download and parse) costs about 200 ms of Worker CPU, far more than the
+// plan's per-request budget, and a Worker over budget is stopped together with the requests it serves
+// (Cloudflare error 1102). So the feed is refreshed at most every 30 s, isolates first look for a
+// newer copy another isolate put in the shared cache, a short marker keeps them from refreshing at the
+// same time, and POST handlers never refresh (a demo-wallet write must not share an invocation with it).
+const FRESH_MS = 30000;
+const EDGE_CHECK_MS = 5000;
+const REFRESH_MARK_S = 25;
 const cacheKey = (contract: string) => `https://trustgate-feed.cache/${contract.toLowerCase()}`;
+const markKey = (contract: string) => `https://trustgate-feed.cache/refreshing/${contract.toLowerCase()}`;
 
 function edgeCache(): Cache | null {
   try {
@@ -181,18 +191,33 @@ function refresh(contract: string): Promise<Cached> {
   return p;
 }
 
-export async function getFeed(contract: string): Promise<Cached & { stale: boolean }> {
-  let hit = memory.get(contract) ?? null;
-  if (!hit) {
-    const res = await edgeCache()?.match(cacheKey(contract)).catch(() => undefined);
-    if (res) {
-      hit = (await res.json().catch(() => null)) as Cached | null;
-      if (hit) memory.set(contract, hit);
-    }
+async function fromEdge(contract: string): Promise<Cached | null> {
+  lastEdgeCheck.set(contract, Date.now());
+  const res = await edgeCache()?.match(cacheKey(contract)).catch(() => undefined);
+  const hit = res ? ((await res.json().catch(() => null)) as Cached | null) : null;
+  const mine = memory.get(contract);
+  if (hit && (!mine || hit.at > mine.at)) memory.set(contract, hit);
+  return memory.get(contract) ?? null;
+}
+
+// Starts a background refresh unless another isolate has just started one.
+async function refreshInBackground(contract: string) {
+  const cache = edgeCache();
+  if (cache) {
+    if (await cache.match(markKey(contract)).catch(() => undefined)) return;
+    await cache.put(markKey(contract), new Response("1", { headers: { "cache-control": `max-age=${REFRESH_MARK_S}` } })).catch(() => undefined);
   }
-  if (hit && Date.now() - hit.at < FRESH_MS) return { ...hit, stale: false };
+  waitUntil(refresh(contract).catch(() => undefined));
+}
+
+export async function getFeed(contract: string, opts: { refresh?: boolean } = {}): Promise<Cached & { stale: boolean }> {
+  const allowRefresh = opts.refresh !== false;
+  let hit = memory.get(contract) ?? null;
+  const stale = (c: Cached | null) => !c || Date.now() - c.at >= FRESH_MS;
+  if (stale(hit) && Date.now() - (lastEdgeCheck.get(contract) ?? 0) > EDGE_CHECK_MS) hit = await fromEdge(contract);
+  if (hit && !stale(hit)) return { ...hit, stale: false };
   if (hit) {
-    waitUntil(refresh(contract).catch(() => undefined));
+    if (allowRefresh) await refreshInBackground(contract);
     return { ...hit, stale: true };
   }
   return { ...(await refresh(contract)), stale: false };

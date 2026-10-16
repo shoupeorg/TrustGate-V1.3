@@ -37,8 +37,9 @@ function config() {
 }
 type Cfg = NonNullable<ReturnType<typeof config>>;
 
-async function demoState(cfg: Cfg) {
-  const { events } = await getFeed(tryContract());
+// POST handlers pass refresh = false: a feed refresh must not run in the same invocation as a demo-wallet write.
+async function demoState(cfg: Cfg, refresh = true) {
+  const { events } = await getFeed(tryContract(), { refresh });
   const vault = buildLedger(events).vaults.find((v) => v.vaultId === cfg.vaultId) ?? null;
   const queued = events.filter((e) => e.method === "request_commitment" && QUEUED.includes(e.status.toUpperCase())).length;
   return { vault, queued, events };
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
     if (limit.blocked) return json({ ok: false, error: `Limit reached: ${TRY_LIMITS.perIpPerHour} tries per hour per network. Each judgment costs validators real work.` }, 429);
     return withLock("seller", async () => {
       try {
-        const { vault, queued, events } = await demoState(cfg);
+        const { vault, queued, events } = await demoState(cfg, false);
         if (!vault) return json({ ok: false, error: "The demo vault was not found on the contract." }, 503);
         const mentioned = offer.match(/(\d+(?:\.\d+)?)\s*GEN\b/i)?.[1];
         const parsed = mentioned ? parseGen(mentioned) : null;
@@ -168,7 +169,7 @@ export async function POST(request: Request) {
     return withLock("seller", async () => {
       try {
         // Only the demo seller's own offers, and only once per negotiation.
-        const { events } = await demoState(cfg);
+        const { events } = await demoState(cfg, false);
         const offer = buildNegotiations(events).offers.get(offerId);
         if (offer && offer.seller !== cfg.seller) return json({ ok: false, error: "That offer was not posted by the demo seller." }, 403);
         if (offer && offer.version > 1) return json({ ok: false, error: "The demo seller accepts one counterproposal per negotiation." }, 400);

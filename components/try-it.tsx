@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EXPLORER_TX, isProvisional, isSettled, isStuck, type FeedEvent } from "@/lib/vault";
 import { MandateLines } from "@/components/landing/hud";
+import { NotJsonError, readJson } from "@/lib/read-json";
 
 // Example offers (labeled as examples on the page). Grey cases pass every enforced limit and
 // keyword rule; only the validators' reading of the mandate can catch them.
@@ -43,7 +44,7 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
   const loadConfig = useCallback(async () => {
     try {
       const res = await fetch("/api/try", { cache: "no-store" });
-      setConfig((await res.json()) as Config);
+      setConfig(await readJson<Config>(res));
     } catch (e) {
       setConfig({ ok: false, configured: true, error: e instanceof Error ? e.message : "unreachable" });
     }
@@ -52,6 +53,13 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
     const t = window.setTimeout(loadConfig, 0);
     return () => window.clearTimeout(t);
   }, [loadConfig]);
+  // A failed load (network, an error page) is retried a few times so Try it does not stay disabled.
+  const retries = useRef(0);
+  useEffect(() => {
+    if (!config || config.ok || !config.configured || retries.current >= 10) return;
+    const t = window.setTimeout(() => { retries.current++; void loadConfig(); }, 6000);
+    return () => window.clearTimeout(t);
+  }, [config, loadConfig]);
   useEffect(() => {
     if (!running) return;
     const t = window.setInterval(() => setNow(Date.now()), 1000);
@@ -59,18 +67,24 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
   }, [running]);
 
   async function call(body: Record<string, unknown>, waiting: string): Promise<ApiResult | null> {
+    let pageErrors = 0;
     for (let attempt = 0; attempt < 15; attempt++) {
-      setState({ busy: true, msg: attempt === 0 ? waiting : "Another visitor is using the demo wallets · waiting your turn…", error: false });
+      setState({ busy: true, msg: attempt === 0 ? waiting : pageErrors ? "The site was briefly overloaded · trying again…" : "Another visitor is using the demo wallets · waiting your turn…", error: false });
       try {
         const res = await fetch("/api/try", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-        const out = (await res.json()) as ApiResult;
+        const out = await readJson<ApiResult>(res);
         if (out.ok && out.hash) return out;
         if (!out.busy) {
           setState({ busy: false, msg: out.error ?? "Something went wrong", error: true });
           return null;
         }
       } catch (e) {
-        setState({ busy: false, msg: `Could not reach the site: ${e instanceof Error ? e.message : e}`, error: true });
+        // An error page instead of JSON (the Worker was stopped before it answered): try again twice.
+        if (e instanceof NotJsonError && ++pageErrors <= 2) {
+          await new Promise((r) => setTimeout(r, 4000));
+          continue;
+        }
+        setState({ busy: false, msg: e instanceof NotJsonError ? e.message : `Could not reach the site: ${e instanceof Error ? e.message : e}`, error: true });
         return null;
       }
       await new Promise((r) => setTimeout(r, 4000));
@@ -84,7 +98,7 @@ export function TryIt({ onOpenNegotiation }: { onOpenNegotiation?: (id: string) 
     for (let i = 0; i < 150; i++) {
       try {
         const res = await fetch(`/api/vault-feed${config?.contract ? `?contract=${config.contract}` : ""}`, { cache: "no-store" });
-        const body = (await res.json()) as { events?: FeedEvent[] };
+        const body = await readJson<{ events?: FeedEvent[] }>(res);
         const found = body.events?.find((e) => e.hash.toLowerCase() === hash.toLowerCase()) ?? null;
         if (found) setSteps((s) => s.map((x) => (x.hash === hash ? { ...x, event: found } : x)));
         if (decided(found)) return found;

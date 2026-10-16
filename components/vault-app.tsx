@@ -50,6 +50,7 @@ import { NegotiationList, NegotiationView, OfferRequests, SellerMode } from "@/c
 import { BenchmarkPane, headlineNumbers } from "@/components/genlayer-value";
 import { startLanding } from "@/components/landing/engine";
 import { hudText, MandateLines } from "@/components/landing/hud";
+import { NotJsonError, readJson } from "@/lib/read-json";
 
 const MANDATE_TEMPLATES = [
   {
@@ -90,20 +91,27 @@ type FaucetState = { where: Where; busy: boolean; msg: string | null; error: boo
 
 function useFeed(contract: string) {
   const [state, setState] = useState<FeedState>(() => ({ events: [], fetchedAt: null, source: "", error: null, stale: false, loading: true }));
+  const failures = useRef(0);
   const refresh = useCallback(async () => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), FEED_TIMEOUT);
     try {
       const res = await fetch(`/api/vault-feed?contract=${contract}`, { cache: "no-store", signal: controller.signal });
-      const body = (await res.json()) as { events?: FeedEvent[]; error?: string; source?: string; fetchedAt?: string };
+      const body = await readJson<{ events?: FeedEvent[]; error?: string; source?: string; fetchedAt?: string }>(res);
       if (!res.ok || body.error || !Array.isArray(body.events)) throw new Error(body.error ?? `HTTP ${res.status}`);
       const next = { events: body.events, fetchedAt: body.fetchedAt ?? new Date().toISOString(), source: body.source ?? "transaction history", error: null, stale: false, loading: false };
+      failures.current = 0;
       setState(next);
       try {
         window.localStorage.setItem(SNAPSHOT_KEY + contract, JSON.stringify(next));
       } catch {}
     } catch (e) {
       const message = controller.signal.aborted ? `no answer from Studio Next within ${FEED_TIMEOUT / 1000} s` : errorText(e);
+      // One failed poll with data on screen is not worth a warning; the next poll comes in 8 s.
+      if (++failures.current < 2) {
+        setState((s) => (s.events.length ? s : { ...s, loading: true }));
+        return;
+      }
       setState((s) => {
         if (s.events.length) return { ...s, error: message, stale: true, loading: false };
         try {
@@ -323,13 +331,13 @@ export function VaultApp() {
     setFaucet({ where, busy: true, msg: "Sending test GEN…", error: false });
     try {
       const res = await fetch("/api/test-gen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address }) });
-      const body = (await res.json()) as { ok: boolean; error?: string; amount?: string; hash?: string; confirmed?: boolean };
+      const body = await readJson<{ ok: boolean; error?: string; amount?: string; hash?: string; confirmed?: boolean }>(res);
       if (!body.ok) return setFaucet({ where, busy: false, msg: body.error ?? "Faucet error", error: true });
       setFaucet({ where, busy: false, msg: `${body.amount} test GEN sent${body.confirmed ? "" : " · confirming…"}`, error: false, hash: body.hash });
       void refreshBalances();
       window.setTimeout(() => void refreshBalances(), 6000);
     } catch (e) {
-      setFaucet({ where, busy: false, msg: `Faucet unreachable: ${errorText(e)}`, error: true });
+      setFaucet({ where, busy: false, msg: e instanceof NotJsonError ? `Faucet: ${e.message}` : `Faucet unreachable: ${errorText(e)}`, error: true });
     }
   }, [refreshBalances]);
 
