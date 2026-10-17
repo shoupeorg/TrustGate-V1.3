@@ -1,5 +1,7 @@
 # TrustGate V1.3: resubmission
 
+Demo video: VIDEO_LINK
+
 **Before an Agent Says Yes.**
 
 - **Live:** https://trustgatecheck.xyz (V1 at https://trustgatecheck.xyz/v1)
@@ -27,11 +29,11 @@ Two agents, from two sides, come to TrustGate before committing, and both rely o
 | Feedback | What changed | Where to see it |
 |---|---|---|
 | **Clear use case** | AI agents that spend money: a vault holds the owner's funds, a seller offers, the agent can only request, GenLayer decides. The hero says it in one line and the first HUD panel shows the flow (vault, mandate, seller, agent, hard cap, judge, three verdicts); TL;DR at the top of the README. | Site hero and *How it works* panel, [README](https://github.com/shoupeorg/TrustGate-V1.3/blob/main/README.md) |
-| **Why on-chain?** | Real numbers up front: the *Unsafe payments* panel shows 15 for a normal smart contract and 0 for TrustGate on the held-out set. A normal smart contract holds money with nobody in control but cannot read the deal; an AI on a private server reads the deal but someone controls it. GenLayer does both (*Why GenLayer* panel). | *Unsafe payments* and *Why GenLayer* panels, *Benchmark* tab |
+| **Why on-chain?** | Real numbers up front: the *Unsafe payments* panel shows 15 for a normal smart contract and 0 for TrustGate on the held-out set. A normal smart contract holds money with nobody in control but cannot read the deal; an AI on a private server reads the deal but someone controls it. GenLayer does both (*Why GenLayer* panel). | *Unsafe payments* and *Why GenLayer* panels, *Benchmark* window (tile under the gate) |
 | **Not one-sided** | Two-sided negotiation in the contract: seller-signed offers, request by offer id, seller accepts/counters/declines, funds only for a seller-signed version GenLayer accepted. Two autonomous AI agents negotiate on-chain; MCP tools for both sides. | *Negotiation* view (`?negotiation=…`), *Your wallet → Seller* tab, [two-agent runs](https://github.com/shoupeorg/TrustGate-V1.3/blob/main/experiments/negotiation-demo/README.md) |
-| **Benchmark visible and honest** | Every number on the site is generated from committed raw results. Held-out sets were written and committed before tuning and never used for tuning. Every earlier run stays published, including the failures. | *Benchmark* tab, [`experiments/benchmark/`](https://github.com/shoupeorg/TrustGate-V1.3/tree/main/experiments/benchmark/) |
+| **Benchmark visible and honest** | Every number on the site is generated from committed raw results. Held-out sets were written and committed before tuning and never used for tuning. Every earlier run stays published, including the failures. | *Benchmark* window (tile under the gate), [`experiments/benchmark/`](https://github.com/shoupeorg/TrustGate-V1.3/tree/main/experiments/benchmark/) |
 | **TL;DR** | At the top of the README; on the site, the hero and the HUD panels. | |
-| **Report at ACCEPTED (provisional) and final** | Every verdict and every negotiation step is labelled *Provisional* (validators agreed) or *Final* (finalized), with explorer links. | *Live feed* tab, Negotiation view |
+| **Report at ACCEPTED (provisional) and final** | Every verdict and every negotiation step is labelled *Provisional* (validators agreed) or *Final* (finalized), with explorer links. | *Live feed* window (tile under the gate), Negotiation view |
 | **History kept** | Offers are never edited; each version links to the previous one. The full negotiation timeline (who signed what, text diff between versions, every verdict) is on-chain and on a shareable page. | Negotiation view |
 | **No silent truncation** | Every free-text field (offer, terms, mandate, justification, counter terms, decline reason) has a visible character counter and the contract's hard limit; over-long input is refused with a message, never cut. | *Try it*, Seller and Owner forms |
 | **Text title, no image** | The title is text: TRUSTGATE V1.3 in the header and "Before an Agent Says Yes" in the hero. | Site header and hero |
@@ -82,6 +84,7 @@ The network, if you add it to the wallet by hand: GenLayer Studio Devnet · RPC 
 - **Try it on the rebuilt site, https://trustgatecheck.xyz, 16 October 2026** ("Upfront · no refund", two runs in a row from one network):
   - Run 1: [RENEGOTIATE](https://explorer-studio-dev.genlayer.com/tx/0xbc1e2c2601d98039cdd5da59c7d31fc1b8a14419944a9515b71cd2c73ff08333) → Seller accepts → [ACCEPT](https://explorer-studio-dev.genlayer.com/tx/0x6c6962e0e35e36aee95fa5f171906297b94a6155d9d15b43e2dee84a89cb11d5)
   - Run 2: [RENEGOTIATE](https://explorer-studio-dev.genlayer.com/tx/0xca4ee33c016df5c99de34bb32e75f7045ad93c839d318081fb53525cd50ca949) → Seller accepts → [ACCEPT](https://explorer-studio-dev.genlayer.com/tx/0xf6b13618640bbae888a5574265aaf52880f2ea8c98e5057aefe22287f82a3b58)
+- **Try it and two wallets on the new UI, https://trustgatecheck.xyz, 17 October 2026:** Try it negotiation `try-mvcdm182-c25602` [RENEGOTIATE](https://explorer-studio-dev.genlayer.com/tx/0x0524249fbc79e61d2af2beb17c85ee1d843d1d58669f994def5f9f440f4be0a7) → [Seller accepts](https://explorer-studio-dev.genlayer.com/tx/0x7c9e8c031ee46726fb61f1a6b4507a0222c7abf189790c2c69e8b17d85d03068) (v2) → [ACCEPT](https://explorer-studio-dev.genlayer.com/tx/0x311d73d5006c5e5acb7fc582046e19a32469cdfd6ad5628570ac44d65b8f5d95); two wallets in two browsers: [request v1](https://explorer-studio-dev.genlayer.com/tx/0xb14b988c3d8b5d573b75d15714527acf6b8c02606ee45095ad3bb3e2389edbd6) → [seller signs v2](https://explorer-studio-dev.genlayer.com/tx/0x2266a89edd4509158b28220c38b4c9914cc0f07570dd3dc3186d4e544a4389df) → [ACCEPT on v2](https://explorer-studio-dev.genlayer.com/tx/0x270d80f3371a9568ff568aef49ec41bbc95a47479fa9d0f37d85837544ed5dc0)
 - **Live Try it in a real browser (earlier site):**
   - RENEGOTIATE: [tx](https://explorer-studio-dev.genlayer.com/tx/0x840a9839363c0264bb34ed56da2007793a77c814ec7ba259c6bb7d00c623bb06)
   - "Seller accepts" → ACCEPT: [tx](https://explorer-studio-dev.genlayer.com/tx/0x5d9466ca962a3c772f33df360f3bdd6e11a07cf0d15380a5c6fd0caf969e76de)
